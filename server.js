@@ -208,13 +208,18 @@ app.post('/api/feedback', (req, res) => {
 
 // ── Public stats ───────────────────────────────────────────────
 app.get('/api/stats', (_req, res) => {
-  res.json({
-    total:    db.prepare('SELECT COUNT(*) AS c FROM conversations').get().c,
-    positive: db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE feedback =  1').get().c,
-    negative: db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE feedback = -1').get().c,
-    german:   db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE language = "de"').get().c,
-    english:  db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE language = "en"').get().c,
-  });
+  try {
+    res.json({
+      total:    db.prepare('SELECT COUNT(*) AS c FROM conversations').get().c,
+      positive: db.prepare("SELECT COUNT(*) AS c FROM conversations WHERE feedback =  1").get().c,
+      negative: db.prepare("SELECT COUNT(*) AS c FROM conversations WHERE feedback = -1").get().c,
+      german:   db.prepare("SELECT COUNT(*) AS c FROM conversations WHERE language = 'de'").get().c,
+      english:  db.prepare("SELECT COUNT(*) AS c FROM conversations WHERE language = 'en'").get().c,
+    });
+  } catch (err) {
+    console.error('/api/stats error:', err);
+    res.json({ total: 0, positive: 0, negative: 0, german: 0, english: 0 });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════
