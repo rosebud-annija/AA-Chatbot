@@ -1,3 +1,11 @@
+/* ── Backend URL ──────────────────────────────────────────────
+   Leer lassen  →  relative Pfade (/api/chat) — funktioniert wenn
+                   der Browser direkt auf dem Railway-Server ist.
+   Railway URL  →  absoluter Pfad für GitHub Pages Embedding, z. B.:
+                   'https://aa-chatbot-production.up.railway.app'
+   ──────────────────────────────────────────────────────────── */
+const BACKEND_URL = '';
+
 /* ── Build sources list for system prompt (from sources.js) ── */
 function buildSourcesList() {
   return SOURCES.map(s => `• ${s.label}: ${s.url}`).join('\n');
@@ -268,7 +276,6 @@ function pickChip(label) {
 /* ── Send ── */
 async function send(e) {
   e.preventDefault();
-  if (!apiKey) { banner.classList.add('visible'); document.getElementById('key-input').focus(); return; }
   const text = msgEl.value.trim();
   if (!text) return;
 
@@ -290,12 +297,13 @@ async function send(e) {
   try {
     let fullText = '', convId = null, usedBackend = false;
 
+    // Backend-first: kein API Key nötig (Railway kümmert sich darum)
     try {
-      const r = await fetch('/api/chat', {
+      const r = await fetch(BACKEND_URL + '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, sessionId }),
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(8000)
       });
       if (r.ok) { const d = await r.json(); fullText = d.message; convId = d.conversationId; usedBackend = true; }
     } catch { /* fall through to direct API */ }
@@ -313,6 +321,16 @@ async function send(e) {
       addFeedback(convId);
       addChips(followups);
     } else {
+      // Direkter API-Fallback: braucht lokalen Key
+      if (!apiKey) {
+        typingWrap.remove();
+        cursor.remove();
+        bubble.parentElement.remove();
+        banner.classList.add('visible');
+        document.getElementById('key-input').focus();
+        btnEl.disabled = false;
+        return;
+      }
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -382,7 +400,7 @@ async function send(e) {
 
 async function giveFb(id, val, btn) {
   try {
-    await fetch('/api/feedback', {
+    await fetch(BACKEND_URL + '/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversationId: id, feedback: val })
