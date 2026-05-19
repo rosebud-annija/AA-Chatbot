@@ -1,5 +1,4 @@
 import express        from 'express';
-import { existsSync } from 'fs';
 import cors           from 'cors';
 import Anthropic      from '@anthropic-ai/sdk';
 import Database       from 'better-sqlite3';
@@ -7,10 +6,18 @@ import multer         from 'multer';
 import pdfParse       from 'pdf-parse/lib/pdf-parse.js';
 import mammoth        from 'mammoth';
 
-const app       = express();
+const app = express();
 // Persistenter Pfad: /data wenn Railway-Volume gemountet, sonst lokal
-const DB_PATH   = existsSync('/data') ? '/data/libby.db' : 'libby.db';
-const db        = new Database(DB_PATH);
+let db, DB_PATH;
+try {
+  DB_PATH = '/data/libby.db';
+  db = new Database(DB_PATH);
+  console.log('✅ Datenbank: persistenter Pfad', DB_PATH);
+} catch {
+  DB_PATH = 'libby.db';
+  db = new Database(DB_PATH);
+  console.log('⚠️  Datenbank: lokaler Pfad', DB_PATH, '(kein persistentes Volume)');
+}
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload    = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
