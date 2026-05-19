@@ -3,7 +3,7 @@ import cors           from 'cors';
 import Anthropic      from '@anthropic-ai/sdk';
 import Database       from 'better-sqlite3';
 import multer         from 'multer';
-import pdfParse       from 'pdf-parse';
+import pdfParse       from 'pdf-parse/lib/pdf-parse.js';
 import mammoth        from 'mammoth';
 
 const app       = express();
