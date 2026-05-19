@@ -4,7 +4,7 @@
    Railway URL  →  absoluter Pfad für GitHub Pages Embedding, z. B.:
                    'https://aa-chatbot-production.up.railway.app'
    ──────────────────────────────────────────────────────────── */
-const BACKEND_URL = '';
+const BACKEND_URL = 'https://aa-chatbot-production.up.railway.app';
 
 /* ── Build sources list for system prompt (from sources.js) ── */
 function buildSourcesList() {
@@ -63,9 +63,17 @@ const micBtn    = document.getElementById('mic-btn');
 const banner    = document.getElementById('key-banner');
 
 /* ── Init ── */
-(function init() {
+(async function init() {
   addBotStatic(INTRO, null, randomChips());
-  if (!apiKey) banner.classList.add('visible');
+  // Prüfen ob Backend erreichbar — wenn ja, kein API Key nötig
+  try {
+    const r = await fetch(BACKEND_URL + '/api/stats', { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) throw new Error();
+    // Backend OK → Banner versteckt lassen
+  } catch {
+    // Backend nicht erreichbar → API Key nötig
+    if (!apiKey) banner.classList.add('visible');
+  }
   if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) {
     micBtn.style.display = 'none';
   }
