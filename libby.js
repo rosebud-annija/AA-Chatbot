@@ -1,3 +1,8 @@
+/* ── Build sources list for system prompt (from sources.js) ── */
+function buildSourcesList() {
+  return SOURCES.map(s => `• ${s.label}: ${s.url}`).join('\n');
+}
+
 /* ── System prompt ── */
 const SYSTEM = `Du bist Libby, Ökonomin bei Agenda Austria Wien, 28 Jahre alt.
 
@@ -5,19 +10,15 @@ SPRACHE: Immer Deutsch. Immer "du", niemals "Sie".
 STIL: 3–5 Sätze. Nutze Aufzählungen mit • wenn sinnvoll. Setze **fett** sehr sparsam ein – nur für das eine entscheidende Wort oder die eine Zahl pro Antwort, die wirklich heraussticht. Max. 1 Emoji.
 VERBOTEN: Lange Einleitungen, Meta-Kommentare, Selbstvorstellungen.
 
+QUELLEN — nur diese URLs verwenden, nie andere erfinden:
+${buildSourcesList()}
+
 FORMAT: Jede Antwort endet mit:
 FOLLOWUP: Kurze Frage 1 | Kurze Frage 2 | Kurze Frage 3
-(max. 5 Wörter je Frage)
+QUELLE: Linktext | URL   (passende Quelle aus der Liste oben; weglassen wenn keine passt)
+(max. 5 Wörter je Folgefrage)`;
 
-WISSEN:
-• Abgabenquote **43 %** (OECD 34 %) → Senkung auf 40 % möglich
-• Pensionsantritt faktisch **60 J** (EU: 64 J), **8 Mrd. €** Zuschuss/Jahr
-• Staatsschulden **78 % BIP** = 32.000 €/Kopf
-• Mietpreisregulierung zerstörte Wohnungsmarkt → mehr Angebot statt Preisdeckel
-• Lohnnebenkosten zu hoch → Flexibilisierung nötig
-• Agenda Austria: 100 % privat finanziert, unabhängig`;
-
-const SYSTEM_FIRST = SYSTEM + `\n\nERSTE FRAGE: Antworte in max. 2–3 Sätzen, FOLLOWUP wie gewohnt anhängen.`;
+const SYSTEM_FIRST = SYSTEM + `\n\nERSTE FRAGE: Antworte in max. 2–3 Sätzen, FOLLOWUP und QUELLE wie gewohnt anhängen.`;
 
 const CHIP_POOL = [
   'Wohnungsmarkt – warum so teuer?',
@@ -136,17 +137,42 @@ function renderText(raw) {
   return frag;
 }
 
-function parseFollowups(text) {
-  const match = text.match(/\nFOLLOWUP:\s*(.+)$/m);
-  if (!match) return { clean: text, followups: [] };
+/* ── Parse FOLLOWUP + QUELLE tags from AI response ── */
+function parseTags(text) {
+  const fuMatch = text.match(/\nFOLLOWUP:\s*(.+?)(?:\n|$)/m);
+  const qMatch  = text.match(/\nQUELLE:\s*(.+?)\s*\|\s*(https?:\/\/\S+)\s*(?:\n|$)/m);
+
+  // Cut the clean text before the first tag
+  let cutAt = text.length;
+  if (fuMatch) cutAt = Math.min(cutAt, fuMatch.index);
+  if (qMatch)  cutAt = Math.min(cutAt, qMatch.index);
+
+  // Safety: only accept agendaaustria.at URLs — never render AI-hallucinated external links
+  const rawUrl = qMatch?.[2]?.trim();
+  const source = (qMatch && rawUrl?.includes('agendaaustria.at'))
+    ? { label: qMatch[1].trim(), url: rawUrl }
+    : null;
+
   return {
-    clean:     text.slice(0, match.index).trim(),
-    followups: match[1].split('|').map(s => s.trim()).filter(Boolean)
+    clean:     text.slice(0, cutAt).trim(),
+    followups: fuMatch ? fuMatch[1].split('|').map(s => s.trim()).filter(Boolean) : [],
+    source
   };
 }
 
 /* ── DOM helpers ── */
 function scrollBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
+
+function renderSource(bubble, source) {
+  if (!source) return;
+  const a = document.createElement('a');
+  a.className = 'source-link';
+  a.href = source.url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.textContent = source.label;
+  bubble.appendChild(a);
+}
 
 function addChips(chips) {
   if (!chips.length) return;
@@ -161,20 +187,6 @@ function addChips(chips) {
   });
   chatInner.appendChild(wrap);
   scrollBottom();
-}
-
-/* ── Source link ── */
-function appendSource(bubble, userMessage, botAnswer) {
-  // Match against user question + bot answer combined for best keyword coverage
-  const source = findSource(userMessage + ' ' + (botAnswer || ''));
-  if (!source) return;
-  const a = document.createElement('a');
-  a.className = 'source-link';
-  a.href = source.url;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  a.textContent = source.label;
-  bubble.appendChild(a);
 }
 
 function addFeedback(id) {
@@ -222,10 +234,11 @@ function createStreamBubble() {
   return { bubble: b, cursor: cur };
 }
 
-/* During streaming: render formatted content progressively.
-   Only the inner wrapper is rebuilt — cursor stays intact, no full-bubble flicker. */
+/* During streaming: strip tags so they never flash up mid-render */
 function updateStream(bubble, cursor, text) {
-  const display = text.replace(/\nFOLLOWUP:.*$/m, '');
+  const display = text
+    .replace(/\nFOLLOWUP:.*$/m, '')
+    .replace(/\nQUELLE:.*$/m, '');
   let wrap = bubble.querySelector('.stream-wrap');
   if (!wrap) {
     wrap = document.createElement('div');
@@ -237,7 +250,7 @@ function updateStream(bubble, cursor, text) {
   scrollBottom();
 }
 
-/* After streaming: unwrap the container — content already formatted, zero visual jump */
+/* After streaming: unwrap — content already formatted, zero visual jump */
 function finalizeStream(bubble) {
   const wrap = bubble.querySelector('.stream-wrap');
   if (wrap) {
@@ -291,11 +304,11 @@ async function send(e) {
     const { bubble, cursor } = createStreamBubble();
 
     if (usedBackend) {
-      const { clean, followups } = parseFollowups(fullText);
+      const { clean, followups, source } = parseTags(fullText);
       updateStream(bubble, cursor, clean);
       cursor.remove();
       finalizeStream(bubble);
-      appendSource(bubble, text, clean);
+      renderSource(bubble, source);
       history.push({ role: 'assistant', content: clean });
       addFeedback(convId);
       addChips(followups);
@@ -310,7 +323,7 @@ async function send(e) {
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 350,
+          max_tokens: 400,
           stream: true,
           system: sysPrompt,
           messages: history.slice(-10)
@@ -351,10 +364,10 @@ async function send(e) {
         }
       }
 
-      const { clean, followups } = parseFollowups(fullText);
+      const { clean, followups, source } = parseTags(fullText);
       cursor.remove();
       finalizeStream(bubble);
-      appendSource(bubble, text, clean);
+      renderSource(bubble, source);
       history.push({ role: 'assistant', content: clean });
       addChips(followups);
     }
