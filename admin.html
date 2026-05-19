@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Libby Admin – Agenda Austria</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- ── Login ── -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Libby Admin</h1>
+    <p>Admin-Key eingeben um fortzufahren</p>
+    <div class="login-field">
+      <input type="password" id="login-input" placeholder="Admin-Key …" autocomplete="off">
+      <button onclick="login()">Login</button>
+    </div>
+    <div id="login-error">Falscher Key – bitte nochmal versuchen.</div>
+  </div>
+</div>
+
+<!-- ── App ── -->
+<div id="app" hidden>
+
+  <header class="admin-header">
+    <div class="admin-header-title">
+      Libby Admin <span>Agenda Austria</span>
+    </div>
+    <button class="logout-btn" onclick="logout()">Abmelden</button>
+  </header>
+
+  <div class="layout">
+
+    <nav class="sidebar">
+      <button class="nav-btn active" id="nav-docs"  onclick="showSection('docs')">
+        📄 Dokumente
+      </button>
+      <button class="nav-btn"        id="nav-stats" onclick="showSection('stats')">
+        📊 Statistik
+      </button>
+    </nav>
+
+    <main class="main-content">
+
+      <!-- ── Dokumente ── -->
+      <section id="section-docs" class="visible">
+        <div class="section-title">Dokumente</div>
+
+        <!-- Upload zone -->
+        <div class="upload-zone" id="upload-zone">
+          <div class="upload-icon">📄</div>
+          <div class="upload-label">Datei hierher ziehen</div>
+          <div class="upload-sub">oder
+            <label class="upload-link">
+              klicken zum Auswählen
+              <input type="file" id="file-input" accept=".pdf,.docx,.txt" hidden>
+            </label>
+          </div>
+          <div class="upload-types">PDF · DOCX · TXT · max. 10 MB</div>
+        </div>
+
+        <div class="upload-progress" id="upload-progress">
+          <div class="spinner"></div>
+          <span id="upload-status">Wird hochgeladen …</span>
+        </div>
+
+        <!-- Document list -->
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Titel</th>
+              <th>Typ</th>
+              <th>Hochgeladen</th>
+              <th>Zugriffe</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="doc-tbody">
+            <tr class="empty-row"><td colspan="5">Noch keine Dokumente hochgeladen.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ── Statistik ── -->
+      <section id="section-stats">
+        <div class="section-title">Statistik</div>
+
+        <!-- KPI cards -->
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-value" id="kpi-total">—</div>
+            <div class="kpi-label">Anfragen gesamt</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-value" id="kpi-today">—</div>
+            <div class="kpi-label">Heute</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-value" id="kpi-feedback">—</div>
+            <div class="kpi-label">Positives Feedback</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-value" id="kpi-docs">—</div>
+            <div class="kpi-label">Dokumente</div>
+          </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+          <div class="chart-card full">
+            <h3>Anfragen pro Tag – letzte 30 Tage</h3>
+            <canvas id="chart-queries"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>Häufigste Themen</h3>
+            <canvas id="chart-topics"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>Meistgenutzte Dokumente</h3>
+            <canvas id="chart-docs"></canvas>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

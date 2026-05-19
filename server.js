@@ -1,309 +1,325 @@
-import express from 'express';
-import cors from 'cors';
-import Anthropic from '@anthropic-ai/sdk';
-import Database from 'better-sqlite3';
+import express        from 'express';
+import cors           from 'cors';
+import Anthropic      from '@anthropic-ai/sdk';
+import Database       from 'better-sqlite3';
+import multer         from 'multer';
+import pdfParse       from 'pdf-parse';
+import mammoth        from 'mammoth';
 
-const app = express();
+const app       = express();
+const db        = new Database('libby.db');
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const upload    = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static('.'));
 
-const db = new Database('libby.db');
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
+// ── DB setup + migrations (safe on every start) ────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS conversations (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id        TEXT,
+    user_message      TEXT,
+    assistant_message TEXT,
+    feedback          INTEGER  DEFAULT 0,
+    context           TEXT     DEFAULT '',
+    used_search       INTEGER  DEFAULT 0,
+    language          TEXT     DEFAULT 'de',
+    source_doc_ids    TEXT     DEFAULT '',
+    timestamp         DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_session  ON conversations(session_id);
+  CREATE INDEX IF NOT EXISTS idx_feedback ON conversations(feedback);
+  CREATE INDEX IF NOT EXISTS idx_ts       ON conversations(timestamp);
 
-const knowledge = {
-  de: {
-    agenda: {
-      mission: "Freiheit und Eigenverantwortung = Bausteine für florierende Gesellschaft. Lösungsorientiert, wissenschaftlich, unbestechlich.",
-      finanzierung: "100% privat finanziert. Kein Geld von Staat, Parteien, Kammern.",
-    },
-    steuern: {
-      fakten: "Abgabenquote 43% (DE 40%, OECD 34%). Obere 10% zahlen Hälfte.",
-      position: "Senkung auf 40% möglich."
-    },
-    pensionen: {
-      fakten: "Antritt faktisch 60J (EU: 64J). 8 Mrd/Jahr Zuschuss.",
-      position: "Antrittsalter an Lebenserwartung koppeln."
-    },
-    buerokratie: {
-      fakten: "Österreich = Bürokratie-Champion Europas.",
-      position: "One-Stop-Shops, Digitalisierung."
-    },
-    schulden: {
-      fakten: "78% BIP = 32.000€/Kopf. 7 Mrd Zinsen/Jahr.",
-      position: "Ausgabenbremse wie Schweiz."
-    }
-  },
-  en: {
-    agenda: {
-      mission: "Freedom and personal responsibility = building blocks for thriving society. Solution-oriented, scientific, incorruptible.",
-      finanzierung: "100% privately funded. No money from state, parties, chambers.",
-    },
-    steuern: {
-      fakten: "Tax rate 43% (Germany 40%, OECD 34%). Top 10% pay half.",
-      position: "Reduction to 40% possible."
-    },
-    pensionen: {
-      fakten: "Retirement effectively at 60 (EU: 64). €8bn/year subsidy.",
-      position: "Link retirement age to life expectancy."
-    },
-    buerokratie: {
-      fakten: "Austria = Europe's bureaucracy champion.",
-      position: "One-stop-shops, digitalization."
-    },
-    schulden: {
-      fakten: "78% GDP = €32,000 per capita. €7bn interest/year.",
-      position: "Spending brake like Switzerland."
-    }
-  }
-};
+  CREATE TABLE IF NOT EXISTS documents (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename   TEXT    NOT NULL,
+    title      TEXT    NOT NULL,
+    content    TEXT    NOT NULL,
+    file_type  TEXT,
+    hit_count  INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 
-function detectLanguage(message) {
-  const text = message.toLowerCase();
-  
-  // Englische Indikatoren
-  const englishIndicators = [
-    /\b(what|how|why|when|where|who|which)\b/,
-    /\b(the|is|are|was|were|been|being)\b/,
-    /\b(you|your|yours|yourself)\b/,
-    /\b(can|could|would|should|will|shall)\b/,
-    /\b(about|because|before|after|through)\b/,
-    /\b(tax|pension|debt|bureaucracy)\b/,
-    /\b(show|tell|explain|give)\s+me\b/
-  ];
-  
-  // Deutsche Indikatoren
-  const germanIndicators = [
-    /\b(was|wie|warum|wann|wo|wer|welch)\b/,
-    /\b(der|die|das|den|dem|des)\b/,
-    /\b(ich|du|er|sie|es|wir|ihr)\b/,
-    /\b(ist|sind|war|waren|sein|werden)\b/,
-    /\b(und|oder|aber|denn|weil|dass)\b/,
-    /\b(steuer|pension|schuld|bürokratie)\b/,
-    /\b(zeig|sag|erkläre|gib)\s+(mir|uns)\b/
-  ];
-  
-  let englishScore = 0;
-  let germanScore = 0;
-  
-  englishIndicators.forEach(pattern => {
-    if (pattern.test(text)) englishScore++;
-  });
-  
-  germanIndicators.forEach(pattern => {
-    if (pattern.test(text)) germanScore++;
-  });
-  
-  // Bei Gleichstand: Prüfe ob typisch englische Buchstabenkombinationen
-  if (englishScore === germanScore) {
-    if (text.match(/\b\w+tion\b|\b\w+ing\b/)) englishScore++;
-    if (text.match(/\b\w+ung\b|\b\w+keit\b/)) germanScore++;
-  }
-  
-  return englishScore > germanScore ? 'en' : 'de';
+  CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+    title, content, content='documents', content_rowid='id'
+  );
+
+  CREATE TRIGGER IF NOT EXISTS docs_ai AFTER INSERT ON documents BEGIN
+    INSERT INTO documents_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+  END;
+  CREATE TRIGGER IF NOT EXISTS docs_ad AFTER DELETE ON documents BEGIN
+    INSERT INTO documents_fts(documents_fts, rowid, title, content)
+    VALUES ('delete', old.id, old.title, old.content);
+  END;
+  CREATE TRIGGER IF NOT EXISTS docs_au AFTER UPDATE ON documents BEGIN
+    INSERT INTO documents_fts(documents_fts, rowid, title, content)
+    VALUES ('delete', old.id, old.title, old.content);
+    INSERT INTO documents_fts(rowid, title, content) VALUES (new.id, new.title, new.content);
+  END;
+`);
+for (const sql of [
+  'ALTER TABLE conversations ADD COLUMN used_search    INTEGER DEFAULT 0',
+  'ALTER TABLE conversations ADD COLUMN language       TEXT    DEFAULT "de"',
+  'ALTER TABLE conversations ADD COLUMN source_doc_ids TEXT    DEFAULT ""',
+]) { try { db.exec(sql); } catch { /* column already exists */ } }
+
+// ── Admin auth ─────────────────────────────────────────────────
+const ADMIN_KEY = process.env.ADMIN_KEY || 'libby-admin';
+function requireAdmin(req, res, next) {
+  if (req.headers['x-admin-key'] !== ADMIN_KEY) return res.status(401).json({ error: 'Unauthorized' });
+  next();
 }
 
-function getRelevantKnowledge(message, lang) {
-  const msg = message.toLowerCase();
-  const kb = knowledge[lang];
-  let context = '';
-  
-  if (msg.match(/agenda|think.?tank|wer|who|mission|about.*you/i)) {
-    context += lang === 'de' 
-      ? `AGENDA: ${kb.agenda.mission} ${kb.agenda.finanzierung}\n`
-      : `AGENDA: ${kb.agenda.mission} ${kb.agenda.finanzierung}\n`;
-  }
-  if (msg.match(/steuer|tax|abgabe/i)) {
-    context += lang === 'de'
-      ? `STEUERN: ${kb.steuern.fakten} ${kb.steuern.position}\n`
-      : `TAXES: ${kb.steuern.fakten} ${kb.steuern.position}\n`;
-  }
-  if (msg.match(/pension|rente|retirement/i)) {
-    context += lang === 'de'
-      ? `PENSIONEN: ${kb.pensionen.fakten} ${kb.pensionen.position}\n`
-      : `PENSIONS: ${kb.pensionen.fakten} ${kb.pensionen.position}\n`;
-  }
-  if (msg.match(/büro|bureaucracy|verwaltung|administration/i)) {
-    context += lang === 'de'
-      ? `BÜROKRATIE: ${kb.buerokratie.fakten} ${kb.buerokratie.position}\n`
-      : `BUREAUCRACY: ${kb.buerokratie.fakten} ${kb.buerokratie.position}\n`;
-  }
-  if (msg.match(/schuld|debt|budget|deficit/i)) {
-    context += lang === 'de'
-      ? `SCHULDEN: ${kb.schulden.fakten} ${kb.schulden.position}\n`
-      : `DEBT: ${kb.schulden.fakten} ${kb.schulden.position}\n`;
-  }
-  
-  return context;
+// ── Document search via FTS5 ───────────────────────────────────
+function searchDocuments(query) {
+  try {
+    const q = query.replace(/['"*\[\](){}!^~?:\\]/g, ' ').trim();
+    if (!q) return [];
+    return db.prepare(`
+      SELECT d.id, d.title,
+             snippet(documents_fts, 1, '', '', ' [...] ', 60) AS excerpt
+      FROM   documents_fts
+      JOIN   documents d ON d.id = documents_fts.rowid
+      WHERE  documents_fts MATCH ?
+      ORDER  BY rank
+      LIMIT  2
+    `).all(q);
+  } catch { return []; }
 }
 
-function getConversationHistory(sessionId, limit = 6) {
-  const stmt = db.prepare(`SELECT user_message, assistant_message FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?`);
-  const rows = stmt.all(sessionId, limit);
-  const messages = [];
-  for (const row of rows.reverse()) {
-    messages.push({ role: 'user', content: row.user_message });
-    messages.push({ role: 'assistant', content: row.assistant_message });
+// ── Language detection ─────────────────────────────────────────
+function detectLanguage(msg) {
+  const t = msg.toLowerCase();
+  let en = 0, de = 0;
+  [/\b(what|how|why|when|the|is|are|you|can)\b/, /\b(tax|pension|debt|show|tell)\b/]
+    .forEach(p => { if (p.test(t)) en++; });
+  [/\b(was|wie|warum|der|die|das|ich|ist|und)\b/, /\b(steuer|pension|schuld)\b/]
+    .forEach(p => { if (p.test(t)) de++; });
+  if (en === de) {
+    if (/\b\w+tion\b|\b\w+ing\b/.test(t)) en++;
+    if (/\b\w+ung\b|\b\w+keit\b/.test(t)) de++;
   }
-  return messages;
+  return en > de ? 'en' : 'de';
 }
 
-function getLearnedRules(lang) {
-  const badAnswers = db.prepare(`
-    SELECT assistant_message, COUNT(*) as count 
-    FROM conversations 
-    WHERE feedback = -1 AND language = ?
-    GROUP BY assistant_message 
-    HAVING count >= 2
-    ORDER BY count DESC 
-    LIMIT 10
-  `).all(lang);
-  
-  let rules = '';
-  
-  for (const answer of badAnswers) {
-    const msg = answer.assistant_message;
-    
-    if (msg.split(' ').length > 15) {
-      rules += lang === 'de'
-        ? `- VERMEIDE: Antworten über 15 Wörter (${answer.count}x 👎)\n`
-        : `- AVOID: Answers over 15 words (${answer.count}x 👎)\n`;
-    }
-    
-    if (msg.match(/hier sind|als libby|here are|as libby/i)) {
-      rules += lang === 'de'
-        ? `- VERMEIDE: Meta-Kommentare (${answer.count}x 👎)\n`
-        : `- AVOID: Meta-comments (${answer.count}x 👎)\n`;
-    }
-    
-    if (lang === 'de' && msg.match(/Sie|Ihnen|Ihr /)) {
-      rules += `- VERMEIDE: "Sie"-Anrede (${answer.count}x 👎) - immer "du"!\n`;
-    }
-  }
-  
-  return rules;
+// ── Conversation history ───────────────────────────────────────
+function getHistory(sessionId, limit = 6) {
+  return db.prepare(
+    'SELECT user_message, assistant_message FROM conversations WHERE session_id = ? ORDER BY id DESC LIMIT ?'
+  ).all(sessionId, limit).reverse().flatMap(r => [
+    { role: 'user',      content: r.user_message      },
+    { role: 'assistant', content: r.assistant_message },
+  ]);
 }
 
-function getGoodExamples(lang) {
-  const goodAnswers = db.prepare(`
-    SELECT user_message, assistant_message, COUNT(*) as count 
-    FROM conversations 
-    WHERE feedback = 1 AND language = ?
-    GROUP BY user_message, assistant_message 
-    ORDER BY count DESC 
-    LIMIT 5
-  `).all(lang);
-  
-  let examples = '';
-  for (const ex of goodAnswers) {
-    examples += `User: "${ex.user_message}"\n✅ (${ex.count}x 👍): "${ex.assistant_message}"\n\n`;
-  }
-  
-  return examples;
-}
-
-const prompts = {
-  de: (needsSource, learnedRules, goodExamples, relevantKnowledge) => `Du bist Libby, 28, Ökonomin bei Agenda Austria Wien.
+// ── System prompts ─────────────────────────────────────────────
+const BASE = {
+  de: `Du bist Libby, Ökonomin bei Agenda Austria Wien, 28 Jahre alt.
 
 SPRACHE: Immer Deutsch. Immer "du", niemals "Sie".
-STIL: 3–4 Sätze. Direkt, selbstbewusst, mit konkreten Zahlen. Nutze passende Emojis. Stelle am Ende eine Rückfrage (z.B. "Möchtest du mehr dazu wissen? 🤔").
-VERBOTEN: Meta-Kommentare wie "Als KI..." oder Selbstvorstellungen.
+STIL: 3–5 Sätze. Aufzählungen mit • wenn sinnvoll. **Fett** sehr sparsam. Max. 1 Emoji.
+VERBOTEN: Lange Einleitungen, Meta-Kommentare, Selbstvorstellungen.
 
-${needsSource ? `QUELLENANGABE: NUTZE web_search Tool. Format: "Laut [Quelle] vom [Datum]: [Aussage]"\n` : ''}
-${learnedRules ? 'AUS FEEDBACK GELERNT:\n' + learnedRules : ''}
-${goodExamples ? 'BEWÄHRTE BEISPIELE:\n' + goodExamples : ''}
-${relevantKnowledge ? 'WISSEN:\n' + relevantKnowledge : ''}`,
+WISSEN:
+• Abgabenquote **43 %** (OECD 34 %) → Senkung auf 40 % möglich
+• Pensionsantritt faktisch **60 J** (EU: 64 J), **8 Mrd. €** Zuschuss/Jahr
+• Staatsschulden **78 % BIP** = 32.000 €/Kopf
+• Mietpreisregulierung → mehr Angebot statt Preisdeckel
+• Lohnnebenkosten zu hoch → Flexibilisierung nötig
+• Agenda Austria: 100 % privat finanziert, unabhängig
 
-  en: (needsSource, learnedRules, goodExamples, relevantKnowledge) => `You are Libby, 28, economist at Agenda Austria Vienna.
+FORMAT: Jede Antwort endet mit:
+FOLLOWUP: Kurze Frage 1 | Kurze Frage 2 | Kurze Frage 3
+QUELLE: Linktext | URL  (nur agendaaustria.at URLs; weglassen wenn keine passt)
+(max. 5 Wörter je Folgefrage)`,
 
-LANGUAGE: Always English. Use "you" (informal).
-STYLE: 3–4 sentences. Direct, confident, with concrete numbers. Use fitting emojis. End with a follow-up question (e.g. "Want to know more? 🤔").
-FORBIDDEN: Meta-comments like "As an AI..." or self-introductions.
+  en: `You are Libby, economist at Agenda Austria Vienna, age 28.
 
-${needsSource ? `SOURCES: USE web_search tool. Format: "According to [Source] from [Date]: [Statement]"\n` : ''}
-${learnedRules ? 'LEARNED FROM FEEDBACK:\n' + learnedRules : ''}
-${goodExamples ? 'PROVEN EXAMPLES:\n' + goodExamples : ''}
-${relevantKnowledge ? 'KNOWLEDGE:\n' + relevantKnowledge : ''}`
+LANGUAGE: Always English. Use "you" informally.
+STYLE: 3–5 sentences. Bullets with • where useful. **Bold** sparingly. Max. 1 emoji.
+FORBIDDEN: Long intros, meta-comments, self-introductions.
+
+KNOWLEDGE:
+• Tax burden **43%** (OECD 34%) → reduction to 40% possible
+• Retirement effectively at **60** (EU: 64), €8bn/yr subsidy
+• Public debt **78% GDP** = €32,000 per capita
+• Rent regulation → more supply, not price caps
+• Agenda Austria: 100% privately funded, independent
+
+FORMAT: End every answer with:
+FOLLOWUP: Short question 1 | Short question 2 | Short question 3
+SOURCE: Link text | URL  (agendaaustria.at URLs only; omit if none fits)
+(max. 5 words per follow-up)`,
 };
 
+// ── Chat ───────────────────────────────────────────────────────
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, sessionId = 'default' } = req.body;
-    
-    // Sprache erkennen
-    const detectedLang = detectLanguage(message);
-    
-    const history = getConversationHistory(sessionId, 6);
-    const relevantKnowledge = getRelevantKnowledge(message, detectedLang);
-    const learnedRules = getLearnedRules(detectedLang);
-    const goodExamples = getGoodExamples(detectedLang);
-    
-    const needsSource = message.match(/quelle|beleg|wo.*sag|recherchier|source|evidence|where.*say|research/i);
-    
-    const systemPrompt = prompts[detectedLang](needsSource, learnedRules, goodExamples, relevantKnowledge);
+    const lang    = detectLanguage(message);
+    const history = getHistory(sessionId);
 
-    history.push({ role: 'user', content: message });
-    
-    const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: needsSource ? 400 : 300,
-      system: systemPrompt,
-      messages: history,
-      tools: needsSource ? [{
-        type: "web_search_20250305",
-        name: "web_search"
-      }] : undefined
-    });
-    
-    let assistantMessage = '';
-    let usedSearch = false;
-    
-    for (const block of response.content) {
-      if (block.type === 'text') {
-        assistantMessage += block.text;
-      } else if (block.type === 'tool_use') {
-        usedSearch = true;
+    // Inject relevant document context
+    const docHits    = searchDocuments(message);
+    const usedDocIds = docHits.map(d => d.id);
+    let   docContext = '';
+    if (docHits.length > 0) {
+      docContext = (lang === 'de' ? '\n\nDOKUMENTE:\n' : '\n\nDOCUMENTS:\n')
+        + docHits.map(d => `[${d.title}]\n${d.excerpt}`).join('\n\n');
+      for (const id of usedDocIds) {
+        db.prepare('UPDATE documents SET hit_count = hit_count + 1 WHERE id = ?').run(id);
       }
     }
-    
-    const insert = db.prepare(`INSERT INTO conversations (session_id, user_message, assistant_message, context, used_search, language) VALUES (?, ?, ?, ?, ?, ?)`);
-    const result = insert.run(sessionId, message, assistantMessage, relevantKnowledge || '', usedSearch ? 1 : 0, detectedLang);
-    
-    res.json({ 
-      message: assistantMessage, 
-      conversationId: result.lastInsertRowid,
-      detectedLanguage: detectedLang 
+
+    history.push({ role: 'user', content: message });
+
+    const response = await anthropic.messages.create({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system:     BASE[lang] + docContext,
+      messages:   history,
     });
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Fehler / Error' });
+
+    const assistantMessage = response.content
+      .filter(b => b.type === 'text').map(b => b.text).join('');
+
+    const result = db.prepare(`
+      INSERT INTO conversations (session_id, user_message, assistant_message, context, language, source_doc_ids)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(sessionId, message, assistantMessage, docContext, lang, usedDocIds.join(','));
+
+    res.json({ message: assistantMessage, conversationId: result.lastInsertRowid, detectedLanguage: lang });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
+// ── Feedback ───────────────────────────────────────────────────
 app.post('/api/feedback', (req, res) => {
   try {
-    const { conversationId, feedback } = req.body;
-    db.prepare('UPDATE conversations SET feedback = ? WHERE id = ?').run(feedback, conversationId);
-    console.log(`📊 Feedback: ${feedback > 0 ? '👍' : '👎'} #${conversationId}`);
+    db.prepare('UPDATE conversations SET feedback = ? WHERE id = ?').run(req.body.feedback, req.body.conversationId);
     res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Fehler / Error' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// ── Public stats ───────────────────────────────────────────────
+app.get('/api/stats', (_req, res) => {
+  res.json({
+    total:    db.prepare('SELECT COUNT(*) AS c FROM conversations').get().c,
+    positive: db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE feedback =  1').get().c,
+    negative: db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE feedback = -1').get().c,
+    german:   db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE language = "de"').get().c,
+    english:  db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE language = "en"').get().c,
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// ADMIN API
+// ══════════════════════════════════════════════════════════════
+
+app.get('/admin/verify', requireAdmin, (_req, res) => res.json({ ok: true }));
+
+// Upload
+app.post('/admin/upload', requireAdmin, upload.single('file'), async (req, res) => {
+  try {
+    const { originalname, mimetype, buffer } = req.file;
+    const title = (req.body.title || originalname).replace(/\.[^.]+$/, '');
+    let content = '', fileType = 'TXT';
+
+    if (mimetype.includes('pdf') || originalname.endsWith('.pdf')) {
+      content = (await pdfParse(buffer)).text;
+      fileType = 'PDF';
+    } else if (mimetype.includes('wordprocessingml') || originalname.endsWith('.docx')) {
+      content = (await mammoth.extractRawText({ buffer })).value;
+      fileType = 'DOCX';
+    } else {
+      content = buffer.toString('utf-8');
+    }
+
+    content = content.replace(/\s+/g, ' ').trim();
+    if (!content) return res.status(400).json({ error: 'Kein lesbarer Text gefunden.' });
+
+    const result = db.prepare(
+      'INSERT INTO documents (filename, title, content, file_type) VALUES (?, ?, ?, ?)'
+    ).run(originalname, title, content, fileType);
+
+    res.json({ success: true, id: result.lastInsertRowid, title, fileType });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Upload fehlgeschlagen: ' + err.message });
   }
 });
 
-app.get('/api/stats', (req, res) => {
-  const stats = {
-    total: db.prepare('SELECT COUNT(*) as count FROM conversations').get().count,
-    positive: db.prepare('SELECT COUNT(*) as count FROM conversations WHERE feedback = 1').get().count,
-    negative: db.prepare('SELECT COUNT(*) as count FROM conversations WHERE feedback = -1').get().count,
-    searches: db.prepare('SELECT COUNT(*) as count FROM conversations WHERE used_search = 1').get().count,
-    german: db.prepare('SELECT COUNT(*) as count FROM conversations WHERE language = "de"').get().count,
-    english: db.prepare('SELECT COUNT(*) as count FROM conversations WHERE language = "en"').get().count
-  };
-  res.json(stats);
+// List documents
+app.get('/admin/documents', requireAdmin, (_req, res) => {
+  res.json(db.prepare(
+    'SELECT id, filename, title, file_type, hit_count, created_at FROM documents ORDER BY created_at DESC'
+  ).all());
 });
 
+// Delete document
+app.delete('/admin/documents/:id', requireAdmin, (req, res) => {
+  db.prepare('DELETE FROM documents WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Full stats
+app.get('/admin/stats/full', requireAdmin, (_req, res) => {
+  const total    = db.prepare('SELECT COUNT(*) AS c FROM conversations').get().c;
+  const today    = db.prepare("SELECT COUNT(*) AS c FROM conversations WHERE DATE(timestamp)=DATE('now')").get().c;
+  const pos      = db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE feedback =  1').get().c;
+  const neg      = db.prepare('SELECT COUNT(*) AS c FROM conversations WHERE feedback = -1').get().c;
+  const docCount = db.prepare('SELECT COUNT(*) AS c FROM documents').get().c;
+
+  const queriesPerDay = db.prepare(`
+    SELECT DATE(timestamp) AS date, COUNT(*) AS count
+    FROM   conversations
+    WHERE  timestamp >= DATE('now','-30 days')
+    GROUP  BY DATE(timestamp)
+    ORDER  BY date ASC
+  `).all();
+
+  const topDocuments = db.prepare(
+    'SELECT id, title, file_type, hit_count FROM documents ORDER BY hit_count DESC LIMIT 10'
+  ).all();
+
+  // Word-frequency on last 500 user messages
+  const STOP = new Set([
+    'ich','du','er','sie','es','wir','ihr','die','der','das','den','dem','des','ein','eine',
+    'einer','eines','einem','einen','und','oder','aber','denn','weil','dass','wenn','wie',
+    'was','wo','wer','warum','wann','welche','welcher','ist','sind','war','waren','sein',
+    'werden','wird','wurde','haben','hat','hatte','kann','muss','will','soll','nicht','kein',
+    'keine','auch','noch','schon','nur','sehr','mehr','viel','alle','von','mit','für','auf',
+    'in','an','zu','bei','nach','aus','über','unter','vor','im','zum','zur','am','beim',
+    'mir','dir','uns','mich','sich','bitte','mal','doch','ja','nein','so','da','hier','dann',
+    'jetzt','heute','gibt','geht','macht','sagt','the','is','are','what','how','why','when',
+    'where','who','about','can','have','this','that','with','from','would','could','should',
+  ]);
+  const freq = {};
+  db.prepare('SELECT user_message FROM conversations ORDER BY id DESC LIMIT 500').all()
+    .forEach(({ user_message }) => {
+      user_message.toLowerCase().replace(/[^a-zäöüß\s]/g, ' ').split(/\s+/)
+        .filter(w => w.length >= 4 && !STOP.has(w))
+        .forEach(w => { freq[w] = (freq[w] || 0) + 1; });
+    });
+  const topTopics = Object.entries(freq)
+    .sort(([, a], [, b]) => b - a).slice(0, 12)
+    .map(([word, count]) => ({ word, count }));
+
+  res.json({
+    kpi: { total, today, positivePct: Math.round((pos / (pos + neg || 1)) * 100), docCount },
+    queriesPerDay,
+    topTopics,
+    topDocuments,
+  });
+});
+
+// Serve admin panel
+app.get('/admin', (_req, res) => res.sendFile('admin.html', { root: '.' }));
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Libby mit Auto-Language Detection läuft auf Port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Libby läuft auf Port ${PORT} — Admin: http://localhost:${PORT}/admin`));
