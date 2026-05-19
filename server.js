@@ -288,6 +288,9 @@ app.post('/admin/upload', requireAdmin, upload.single('file'), async (req, res) 
     content = content.replace(/\s+/g, ' ').trim();
     if (!content) return res.status(400).json({ error: 'Kein lesbarer Text gefunden.' });
 
+    const existing = db.prepare('SELECT id FROM documents WHERE filename = ?').get(originalname);
+    if (existing) return res.status(409).json({ error: `„${originalname}" wurde bereits hochgeladen.` });
+
     const result = db.prepare(
       'INSERT INTO documents (filename, title, content, file_type) VALUES (?, ?, ?, ?)'
     ).run(originalname, title, content, fileType);
