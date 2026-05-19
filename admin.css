@@ -313,6 +313,7 @@ section.visible { display: block; }
 .badge-pdf  { background: #fee2e2; color: #b91c1c; }
 .badge-docx { background: #dbeafe; color: #1d4ed8; }
 .badge-txt  { background: #f3f4f6; color: #4b5563; }
+.badge-url  { background: #d1fae5; color: #065f46; }
 
 .hit-count { font-weight: 900; color: var(--brand); }
 
@@ -334,3 +335,50 @@ section.visible { display: block; }
   color: var(--muted);
   font-size: 13px;
 }
+
+
+/* ── URL Import ── */
+.url-import {
+  margin: 12px 0 0;
+  padding: 16px 20px;
+  background: var(--bg);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.url-import-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.url-row {
+  display: flex;
+  gap: 8px;
+}
+.url-row input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--card);
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+.url-row input:focus { border-color: var(--brand); }
+.url-row button {
+  padding: 9px 18px;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.url-row button:hover { opacity: .85; }

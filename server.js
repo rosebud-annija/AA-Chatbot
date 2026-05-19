@@ -302,6 +302,53 @@ app.post('/admin/upload', requireAdmin, upload.single('file'), async (req, res) 
   }
 });
 
+// Import URL
+app.post('/admin/import-url', requireAdmin, async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || !url.startsWith('http')) return res.status(400).json({ error: 'Ungültige URL.' });
+
+    // Duplikat-Check
+    const existing = db.prepare('SELECT id FROM documents WHERE filename = ?').get(url);
+    if (existing) return res.status(409).json({ error: `„${url}" wurde bereits importiert.` });
+
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LibbyBot/1.0)' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return res.status(400).json({ error: `Seite nicht erreichbar (${response.status}).` });
+
+    const html = await response.text();
+
+    // HTML → Text: Scripts/Styles entfernen, Tags strippen
+    let content = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+      .replace(/<header[\s\S]*?<\/header>/gi, ' ')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/\s+/g, ' ').trim();
+
+    if (!content || content.length < 100)
+      return res.status(400).json({ error: 'Kein lesbarer Text auf der Seite gefunden.' });
+
+    // Titel aus <title>-Tag
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim().replace(/\s*[|\-–].*/,'').trim() : url;
+
+    const result = db.prepare(
+      'INSERT INTO documents (filename, title, content, file_type) VALUES (?, ?, ?, ?)'
+    ).run(url, title, content, 'URL');
+
+    res.json({ success: true, id: result.lastInsertRowid, title, fileType: 'URL' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Import fehlgeschlagen: ' + err.message });
+  }
+});
+
 // List documents
 app.get('/admin/documents', requireAdmin, (_req, res) => {
   res.json(db.prepare(

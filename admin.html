@@ -61,6 +61,15 @@
           <div class="upload-types">PDF · DOCX · TXT · max. 20 MB</div>
         </div>
 
+        <!-- URL import -->
+        <div class="url-import">
+          <div class="url-import-label">oder Website-URL importieren</div>
+          <div class="url-row">
+            <input type="url" id="url-input" placeholder="https://www.agenda-austria.at/..." autocomplete="off">
+            <button onclick="importUrl()">Importieren</button>
+          </div>
+        </div>
+
         <div class="upload-progress" id="upload-progress">
           <div class="spinner"></div>
           <span id="upload-status">Wird hochgeladen …</span>

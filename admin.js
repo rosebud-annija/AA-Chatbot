@@ -157,6 +157,33 @@ async function uploadFile(file) {
   }
 }
 
+/* ── URL Import ── */
+async function importUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url || !url.startsWith('http')) { alert('Bitte eine gültige URL eingeben.'); return; }
+
+  progress.classList.add('visible');
+  statusEl.textContent = `„${url}" wird importiert …`;
+
+  try {
+    const r    = await fetch('/admin/import-url', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+      body:    JSON.stringify({ url }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Import fehlgeschlagen');
+
+    statusEl.textContent = `✅ „${data.title}" erfolgreich importiert`;
+    document.getElementById('url-input').value = '';
+    setTimeout(() => progress.classList.remove('visible'), 3000);
+    await loadDocuments();
+  } catch (err) {
+    statusEl.textContent = '❌ ' + err.message;
+    setTimeout(() => progress.classList.remove('visible'), 4000);
+  }
+}
+
 /* ── Statistics ── */
 async function loadStats() {
   try {
