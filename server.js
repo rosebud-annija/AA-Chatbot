@@ -360,4 +360,4 @@ app.get('/admin/stats/full', requireAdmin, (_req, res) => {
 app.get('/admin', (_req, res) => res.sendFile('admin.html', { root: '.' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Libby läuft auf Port ${PORT} — DB: ${DB_PATH} — Admin: http://localhost:${PORT}/admin`));
+app.listen(PORT, () => console.log(`✅ Libby läuft auf Port ${PORT} — DB: ${DB_PATH} (persistent: ${DB_PATH.startsWith('/data')}) — Admin: http://localhost:${PORT}/admin`));
