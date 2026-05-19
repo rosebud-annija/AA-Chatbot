@@ -7,7 +7,11 @@ import pdfParse       from 'pdf-parse/lib/pdf-parse.js';
 import mammoth        from 'mammoth';
 
 const app       = express();
-const db        = new Database('libby.db');
+// Persistenter Pfad auf Railway (/data), lokal ./libby.db
+const DB_PATH   = process.env.RAILWAY_VOLUME_MOUNT_PATH
+                    ? `${process.env.RAILWAY_VOLUME_MOUNT_PATH}/libby.db`
+                    : 'libby.db';
+const db        = new Database(DB_PATH);
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const upload    = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
