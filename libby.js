@@ -101,7 +101,9 @@ function toggleDictation() {
   }
 
   recognition = new SR();
-  recognition.lang = 'de-DE';
+  recognition.lang = history.length > 0
+    ? (history.some(m => m.role === 'assistant' && /\b(the|is|are|you|can|what|how)\b/i.test(m.content)) ? 'en-US' : 'de-DE')
+    : 'de-DE';
   recognition.continuous = false;
   recognition.interimResults = false;
 
