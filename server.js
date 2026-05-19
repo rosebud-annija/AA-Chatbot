@@ -120,17 +120,18 @@ function getHistory(sessionId, limit = 6) {
 }
 
 // ── System prompts ─────────────────────────────────────────────
-const SOURCES_DE = `• Steuern & Abgaben – Agenda Austria | https://agendaaustria.at/themen/steuern/
-• Pensionen & Altersvorsorge – Agenda Austria | https://agendaaustria.at/themen/pensionen/
-• Wohnen & Mieten – Agenda Austria | https://agendaaustria.at/themen/wohnen/
-• Staatsfinanzen – Agenda Austria | https://agendaaustria.at/themen/staatsfinanzen/
-• Bürokratie & Regulierung – Agenda Austria | https://agendaaustria.at/themen/buerokratie/
-• Arbeitsmarkt – Agenda Austria | https://agendaaustria.at/themen/arbeitsmarkt/
-• Wirtschaft & Wachstum – Agenda Austria | https://agendaaustria.at/themen/wirtschaft/
-• Sozialstaat – Agenda Austria | https://agendaaustria.at/themen/sozialstaat/
-• Energie & Klimapolitik – Agenda Austria | https://agendaaustria.at/themen/energie/
-• Bildung – Agenda Austria | https://agendaaustria.at/themen/bildung/
-• Gesundheitssystem – Agenda Austria | https://agendaaustria.at/themen/gesundheit/`;
+const SOURCES_DE = `• Steuern & Abgaben – Agenda Austria | https://www.agenda-austria.at/topics/staatsbudget-finanzen/steuern-abgaben/
+• Pensionen – Agenda Austria | https://www.agenda-austria.at/topics/soziales/pensionen/
+• Wohnen & Mieten – Agenda Austria | https://www.agenda-austria.at/topics/soziales/wohnen/
+• Staatsschulden – Agenda Austria | https://www.agenda-austria.at/topics/staatsbudget-finanzen/staatsschulden/
+• Staatshaushalt – Agenda Austria | https://www.agenda-austria.at/topics/staatsbudget-finanzen/staatshaushalt/
+• Beschäftigung – Agenda Austria | https://www.agenda-austria.at/topics/arbeit-wohlstand/beschaeftigung/
+• Arbeitslosigkeit – Agenda Austria | https://www.agenda-austria.at/topics/arbeit-wohlstand/arbeitslosigkeit/
+• Wirtschaft & Standort – Agenda Austria | https://www.agenda-austria.at/topics/wirtschaft-standort/wettbewerbsfaehigkeit/
+• Sozialstaat – Agenda Austria | https://www.agenda-austria.at/topics/soziales/sozialstaat/
+• Energie – Agenda Austria | https://www.agenda-austria.at/topics/energie-klima/energie/
+• Bildung – Agenda Austria | https://www.agenda-austria.at/topics/zukunft/bildung/
+• Armut & Verteilung – Agenda Austria | https://www.agenda-austria.at/topics/soziales/armut-verteilung/`;
 
 const BASE = {
   de: `Du bist Libby, Ökonomin bei Agenda Austria Wien, 28 Jahre alt.
@@ -169,17 +170,18 @@ KNOWLEDGE:
 • Agenda Austria: 100% privately funded, independent
 
 SOURCES — only use these URLs, never invent others:
-• Taxes & Levies – Agenda Austria | https://agendaaustria.at/themen/steuern/
-• Pensions – Agenda Austria | https://agendaaustria.at/themen/pensionen/
-• Housing & Rents – Agenda Austria | https://agendaaustria.at/themen/wohnen/
-• Public Finances – Agenda Austria | https://agendaaustria.at/themen/staatsfinanzen/
-• Bureaucracy – Agenda Austria | https://agendaaustria.at/themen/buerokratie/
-• Labour Market – Agenda Austria | https://agendaaustria.at/themen/arbeitsmarkt/
-• Economy & Growth – Agenda Austria | https://agendaaustria.at/themen/wirtschaft/
-• Welfare State – Agenda Austria | https://agendaaustria.at/themen/sozialstaat/
-• Energy & Climate – Agenda Austria | https://agendaaustria.at/themen/energie/
-• Education – Agenda Austria | https://agendaaustria.at/themen/bildung/
-• Healthcare – Agenda Austria | https://agendaaustria.at/themen/gesundheit/
+• Taxes & Levies – Agenda Austria | https://www.agenda-austria.at/topics/staatsbudget-finanzen/steuern-abgaben/
+• Pensions – Agenda Austria | https://www.agenda-austria.at/topics/soziales/pensionen/
+• Housing & Rents – Agenda Austria | https://www.agenda-austria.at/topics/soziales/wohnen/
+• Public Debt – Agenda Austria | https://www.agenda-austria.at/topics/staatsbudget-finanzen/staatsschulden/
+• State Budget – Agenda Austria | https://www.agenda-austria.at/topics/staatsbudget-finanzen/staatshaushalt/
+• Employment – Agenda Austria | https://www.agenda-austria.at/topics/arbeit-wohlstand/beschaeftigung/
+• Unemployment – Agenda Austria | https://www.agenda-austria.at/topics/arbeit-wohlstand/arbeitslosigkeit/
+• Economy & Competitiveness – Agenda Austria | https://www.agenda-austria.at/topics/wirtschaft-standort/wettbewerbsfaehigkeit/
+• Welfare State – Agenda Austria | https://www.agenda-austria.at/topics/soziales/sozialstaat/
+• Energy – Agenda Austria | https://www.agenda-austria.at/topics/energie-klima/energie/
+• Education – Agenda Austria | https://www.agenda-austria.at/topics/zukunft/bildung/
+• Poverty & Distribution – Agenda Austria | https://www.agenda-austria.at/topics/soziales/armut-verteilung/
 
 FORMAT: End every answer with:
 FOLLOWUP: Short question 1 | Short question 2 | Short question 3

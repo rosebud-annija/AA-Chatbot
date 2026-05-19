@@ -165,7 +165,7 @@ function parseTags(text) {
 
   // Safety: only accept agendaaustria.at URLs — never render AI-hallucinated external links
   const rawUrl = qMatch?.[2]?.trim();
-  const source = (qMatch && rawUrl?.includes('agendaaustria.at'))
+  const source = (qMatch && rawUrl?.includes('agenda-austria.at'))
     ? { label: qMatch[1].trim(), url: rawUrl }
     : null;
 
